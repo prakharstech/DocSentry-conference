@@ -1,10 +1,11 @@
 import os
-import pandas as pd
+import time
 from agents.scanner import ScannerAgent
 from agents.strategy import StrategyAgent
 from agents.masker import MaskingAgent
 from agents.adversarial import AdversarialAgent
-from agents.auditor import AuditorAgent  # <--- ADDED THIS IMPORT
+from agents.auditor import AuditorAgent
+from agents.generator import DataGeneratorAgent # <--- USES THE NEW GENERATOR
 from metrics import ResearchMetrics
 
 def main():
@@ -12,74 +13,73 @@ def main():
         print("❌ Error: OPENAI_API_KEY missing.")
         return
 
-    # 1. Setup Agents & Metrics
+    # 1. Initialize Agents
+    # We use the Generator Agent instead of a hardcoded list
+    generator = DataGeneratorAgent() 
     scanner = ScannerAgent()
     strategy = StrategyAgent()
     masker = MaskingAgent()
     adversary = AdversarialAgent()
-    auditor = AuditorAgent()  # <--- ADDED INSTANTIATION
+    auditor = AuditorAgent()
     metrics = ResearchMetrics()
 
-    # 2. Experimental Dataset 
-    dataset = [
-        {"id": 1, "text": "Patient John Doe (DOB: 1980-05-12) diagnosed with Flu.", "ground_truth": ["John Doe", "1980-05-12"], "qis": {"age": "43", "zip": "90210", "condition": "Flu"}},
-        {"id": 2, "text": "Patient Jane Smith (DOB: 1982-08-20) has Flu symptoms.", "ground_truth": ["Jane Smith", "1982-08-20"], "qis": {"age": "41", "zip": "90210", "condition": "Flu"}},
-        {"id": 3, "text": "Subject Bob Jones, born 1980-01-01. Zip 90210.", "ground_truth": ["Bob Jones", "1980-01-01"], "qis": {"age": "43", "zip": "90210", "condition": "Flu"}}, 
-        {"id": 4, "text": "Alice White, 43 years old, from 90210.", "ground_truth": ["Alice White"], "qis": {"age": "43", "zip": "90210", "condition": "Broken Arm"}}
-    ]
+    # 2. Config
+    N_SAMPLES = 10  # Change this to 100 or 1000 for a full paper experiment
+    print(f"--- 🧪 STARTING INFINITE DATA EXPERIMENT (N={N_SAMPLES}) ---\n")
 
-    print(f"--- 🧪 STARTING EXPERIMENT (N={len(dataset)}) ---\n")
+    masked_data_db = [] # Mimics our "Secure Database" output
 
-    processed_records = []
-
-    for record in dataset:
-        original_text = record["text"]
-        truth = record["ground_truth"]
+    for i in range(1, N_SAMPLES + 1):
+        print(f"Generating Record {i}/{N_SAMPLES}...", end="\r")
         
-        # A. Detection Phase
-        scan_res = scanner.scan(original_text)
-        findings = scan_res.get("findings", [])
-        metrics.update_detection(findings, truth)
+        # A. GENERATE (AI creates unique data + ground truth on the fly)
+        record = generator.generate()
+        if not record: 
+            print(f"Skipping record {i} (Generation failed)")
+            continue
         
-        # B. Strategy & Masking
-        plan = strategy.plan(original_text, findings).get("masking_plan", [])
-        mask_res = masker.mask(original_text, plan)
-        masked_text = mask_res.get("masked_text", original_text)
+        text = record.get("text", "")
+        ground_truth = record.get("ground_truth", []) # List of Dicts (compatible with new metrics)
         
-        # C. Adversarial Attack (Robustness)
+        # B. SCAN
+        findings = scanner.scan(text).get("findings", [])
+        metrics.update_detection(findings, ground_truth)
+        
+        # C. STRATEGIZE & MASK
+        plan = strategy.plan(text, findings).get("masking_plan", [])
+        mask_res = masker.mask(text, plan)
+        masked_text = mask_res.get("masked_text", text)
+        
+        # Track Consistency
+        metrics.track_consistency(mask_res.get("new_mappings", {}))
+        
+        # D. ADVERSARIAL & AUDIT
         attack = adversary.attack(masked_text)
         metrics.record_attack(attack.get("attack_successful", False))
-
-        # D. Auditor Check (Utility/Fidelity) <--- ADDED THIS STEP
-        audit = auditor.evaluate(original_text, masked_text)
         
-        # E. Store for K-Anonymity Calculation
-        final_qis = record["qis"].copy()
-        if "1980" in masked_text or "40s" in masked_text: 
-            final_qis["age"] = "40-45"
-            
-        processed_records.append(final_qis)
+        # Optional: Audit for utility (Log it, but don't stop execution)
+        # audit = auditor.evaluate(text, masked_text) 
         
-        # Print Progress including Audit Score
-        print(f"[{record['id']}] Attack: {attack.get('attack_successful')} | Utility Score: {audit.get('utility_score')}/100")
-
-    # 3. Calculate Global Privacy Metrics
-    k_val = metrics.measure_k_anonymity(processed_records, ["age", "zip"])
+        # E. STORE (For Statistical Fidelity Analysis)
+        # We store the original values and the masked result
+        masked_data_db.append({
+            "age": record.get("qis", {}).get("age"),
+            "zip": record.get("qis", {}).get("zip"),
+            "condition": record.get("sensitive")
+        })
+        
+        # Print sample to show variety
+        print(f"\n[Record {i}]\nOriginal: {text}\nMasked:   {masked_text}")
+        
+    print("\n\n--- 📊 ANALYSIS COMPLETE ---")
     
-    # 4. Final Output for Paper
-    print("\n" + "="*50)
-    print("📝 RESEARCH RESULTS (Copy to Paper)")
-    print("="*50)
+    # 3. Calculate Advanced Metrics (K-Anonymity, L-Diversity, Fidelity)
+    k, l = metrics.measure_privacy_stats(masked_data_db, ["age", "zip"], "condition")
     
-    results = metrics.get_results()
-    print(f"Precision: {results['Precision']:.2%}")
-    print(f"Recall:    {results['Recall']:.2%}")
-    print(f"F1 Score:  {results['F1_Score']:.2f}")
-    print(f"Adversarial Inference Rate: {results['Adversarial_ASR']:.2%}")
-    print(f"Minimum K-Anonymity (k): {k_val}")
-    
-    print("\n--- LaTeX Table ---")
+    print("\n=== LATEX TABLE ===")
     print(metrics.generate_latex_table())
+    print(f"Min K-Anonymity: {k}")
+    print(f"Min L-Diversity: {l}")
 
 if __name__ == "__main__":
     main()
