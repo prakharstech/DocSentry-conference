@@ -4,6 +4,7 @@ from agents.scanner import ScannerAgent
 from agents.strategy import StrategyAgent
 from agents.masker import MaskingAgent
 from agents.adversarial import AdversarialAgent
+from agents.auditor import AuditorAgent  # <--- ADDED THIS IMPORT
 from metrics import ResearchMetrics
 
 def main():
@@ -16,10 +17,10 @@ def main():
     strategy = StrategyAgent()
     masker = MaskingAgent()
     adversary = AdversarialAgent()
+    auditor = AuditorAgent()  # <--- ADDED INSTANTIATION
     metrics = ResearchMetrics()
 
-    # 2. Experimental Dataset (Simulating a medical CSV export)
-    # We need structured data to measure K-Anonymity effectively.
+    # 2. Experimental Dataset 
     dataset = [
         {"id": 1, "text": "Patient John Doe (DOB: 1980-05-12) diagnosed with Flu.", "ground_truth": ["John Doe", "1980-05-12"], "qis": {"age": "43", "zip": "90210", "condition": "Flu"}},
         {"id": 2, "text": "Patient Jane Smith (DOB: 1982-08-20) has Flu symptoms.", "ground_truth": ["Jane Smith", "1982-08-20"], "qis": {"age": "41", "zip": "90210", "condition": "Flu"}},
@@ -38,31 +39,31 @@ def main():
         # A. Detection Phase
         scan_res = scanner.scan(original_text)
         findings = scan_res.get("findings", [])
-        metrics.update_detection(findings, truth) # Update F1 Scores
+        metrics.update_detection(findings, truth)
         
         # B. Strategy & Masking
         plan = strategy.plan(original_text, findings).get("masking_plan", [])
         mask_res = masker.mask(original_text, plan)
         masked_text = mask_res.get("masked_text", original_text)
         
-        # C. Adversarial Attack
+        # C. Adversarial Attack (Robustness)
         attack = adversary.attack(masked_text)
         metrics.record_attack(attack.get("attack_successful", False))
+
+        # D. Auditor Check (Utility/Fidelity) <--- ADDED THIS STEP
+        audit = auditor.evaluate(original_text, masked_text)
         
-        # D. Store for K-Anonymity Calculation
-        # In a real paper, we would parse the masked text to extract the remaining QIs.
-        # Here we simulate the effect: if Strategy was "GENERALIZE", we generalize the QI stored in the dict.
+        # E. Store for K-Anonymity Calculation
         final_qis = record["qis"].copy()
-        # (Simplified logic: In a full system, you'd map the text changes back to the QI fields)
         if "1980" in masked_text or "40s" in masked_text: 
-            final_qis["age"] = "40-45" # Example of generalization
+            final_qis["age"] = "40-45"
             
         processed_records.append(final_qis)
         
-        print(f"[{record['id']}] Processed. Attack Success: {attack.get('attack_successful')}")
+        # Print Progress including Audit Score
+        print(f"[{record['id']}] Attack: {attack.get('attack_successful')} | Utility Score: {audit.get('utility_score')}/100")
 
     # 3. Calculate Global Privacy Metrics
-    # We define Quasi-Identifiers (QIs) as Age and Zip
     k_val = metrics.measure_k_anonymity(processed_records, ["age", "zip"])
     
     # 4. Final Output for Paper
