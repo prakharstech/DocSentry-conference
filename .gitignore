@@ -1,18 +1,9 @@
-# Security: NEVER upload API keys
 .env
-
-# Python compilation files
 __pycache__/
 *.pyc
-
-# Virtual Environment
 venv/
 .venv/
 env/
-
-# Mac system files
 .DS_Store
-
-# IDE settings (Optional)
 .vscode/
 .idea/
