@@ -1,9 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DEFAULT_MODEL = "gpt-4o"  
-TEMPERATURE = 0.0        
+TEMPERATURE = 0.7  

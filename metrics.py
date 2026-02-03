@@ -1,127 +1,91 @@
 import pandas as pd
-import numpy as np
-from collections import defaultdict, Counter
+from collections import defaultdict
 from typing import List, Dict
 
 class ResearchMetrics:
     def __init__(self):
-        # 1. GAP FIX: Per-Category Counters
-        # Structure: {'PERSON': {'tp': 0, 'fp': 0, 'fn': 0}, ...}
         self.category_stats = defaultdict(lambda: {'tp': 0, 'fp': 0, 'fn': 0})
-        
-        # Global Counters
         self.total_records = 0
         self.successful_attacks = 0
-        
-        # 4. GAP FIX: Consistency Tracking
-        # Map: "Original Entity" -> Set("Masked Value 1", "Masked Value 2")
         self.consistency_tracker = defaultdict(set)
 
     def update_detection(self, findings: List[dict], ground_truth: List[dict]):
         """
-        Updates Precision/Recall per Category.
-        ground_truth expected format: [{'text': 'John', 'type': 'PERSON'}, ...]
+        Updates metrics using FUZZY MATCHING (Overlap).
         """
-        # Fix: Robustly handle both simple strings (legacy) and dicts (new generator)
-        detected_map = {}
+        # 1. Normalize Detected Items
+        detected_items = []
         for f in findings:
-            text = f.get('text_segment', '').lower()
-            p_type = f.get('pii_type', 'UNKNOWN')
-            detected_map[(text, p_type)] = f
+            text = f.get('text_segment', '').lower().strip()
+            # Map common Scanner variations to standard types
+            cat = f.get('pii_type', 'UNKNOWN').upper()
+            if cat in ['NAME', 'PATIENT']: cat = 'PERSON'
+            if cat in ['ADDRESS', 'CITY']: cat = 'LOCATION'
+            detected_items.append({'text': text, 'type': cat, 'matched': False})
 
-        truth_map = {}
+        # 2. Normalize Ground Truth Items
+        truth_items = []
         for g in ground_truth:
-            # Handle if g is just a string (backward compatibility)
-            if isinstance(g, str):
-                truth_map[(g.lower(), 'UNKNOWN')] = g
+            if isinstance(g, str): # Handle legacy string format
+                text = g.lower().strip()
+                cat = 'UNKNOWN'
             else:
-                text = g.get('text', '').lower()
-                p_type = g.get('type', 'UNKNOWN')
-                truth_map[(text, p_type)] = g
+                text = g.get('text', '').lower().strip()
+                cat = g.get('type', 'UNKNOWN').upper()
+            truth_items.append({'text': text, 'type': cat, 'matched': False})
 
-        detected_keys = set(detected_map.keys())
-        truth_keys = set(truth_map.keys())
+        # 3. Fuzzy Match Logic
+        for t_item in truth_items:
+            for d_item in detected_items:
+                # Check Type Match
+                if t_item['type'] == d_item['type']:
+                    # Check Text Overlap (Is one inside the other?)
+                    if (t_item['text'] == d_item['text'] or 
+                        t_item['text'] in d_item['text'] or 
+                        d_item['text'] in t_item['text']):
+                        
+                        if not t_item['matched']:
+                            # Success!
+                            self.category_stats[t_item['type']]['tp'] += 1
+                            t_item['matched'] = True
+                            d_item['matched'] = True
+                            break # Move to next truth item
 
-        # True Positives
-        for key in detected_keys.intersection(truth_keys):
-            cat = key[1]
-            self.category_stats[cat]['tp'] += 1
+        # 4. Count Failures
+        for t_item in truth_items:
+            if not t_item['matched']:
+                self.category_stats[t_item['type']]['fn'] += 1 # Missed it
 
-        # False Positives (Detected but not in Truth)
-        for key in detected_keys - truth_keys:
-            cat = key[1]
-            self.category_stats[cat]['fp'] += 1
-
-        # False Negatives (In Truth but not Detected)
-        for key in truth_keys - detected_keys:
-            cat = key[1]
-            self.category_stats[cat]['fn'] += 1
+        for d_item in detected_items:
+            if not d_item['matched']:
+                self.category_stats[d_item['type']]['fp'] += 1 # Hallucination
 
     def track_consistency(self, mapping: Dict[str, str]):
-        """
-        Tracks how entities are mapped to check if "John" always becomes "Michael".
-        """
         for original, masked in mapping.items():
             self.consistency_tracker[original].add(masked)
 
     def calculate_consistency_score(self):
-        """
-        Returns % of entities that were masked consistently (mapped to exactly 1 value).
-        """
         if not self.consistency_tracker: return 1.0
         consistent_entities = sum(1 for v in self.consistency_tracker.values() if len(v) == 1)
         return consistent_entities / len(self.consistency_tracker)
 
     def measure_privacy_stats(self, dataset: List[Dict], qi_cols: List[str], sensitive_col: str):
-        """
-        3. GAP FIX: K-Anonymity + L-Diversity
-        """
         df = pd.DataFrame(dataset)
         if df.empty: return 0, 0
-
-        # Group by Quasi-Identifiers
-        # Fill N/As to avoid grouping errors
         df[qi_cols] = df[qi_cols].fillna('MISSING')
         groups = df.groupby(qi_cols)
-        
-        # K-Anonymity: Min group size
         min_k = groups.size().min()
-        
-        # L-Diversity: Min unique sensitive values in any group
         if sensitive_col in df.columns:
             min_l = groups[sensitive_col].nunique().min()
         else:
             min_l = 0
-        
         return min_k, min_l
-
-    def measure_statistical_fidelity(self, original_df: pd.DataFrame, masked_df: pd.DataFrame, num_col: str):
-        """
-        2. GAP FIX: Statistical Fidelity (Mean Shift)
-        """
-        try:
-            # Clean data (remove non-numeric chars for calculation)
-            def clean(x): 
-                try: return float(str(x).replace('s','').replace('+','')) # Handle "40s"
-                except: return None
-            
-            orig_mean = original_df[num_col].apply(clean).mean()
-            mask_mean = masked_df[num_col].apply(clean).mean()
-            
-            # % Difference
-            if orig_mean and orig_mean != 0:
-                fidelity_loss = abs(orig_mean - mask_mean) / orig_mean
-                return 1.0 - fidelity_loss # Score 0-1 (1 is perfect)
-            return 0.0
-        except:
-            return 0.0
 
     def record_attack(self, success: bool):
         if success: self.successful_attacks += 1
         self.total_records += 1
 
     def generate_latex_table(self):
-        # Calculate Global F1
         total_tp = sum(c['tp'] for c in self.category_stats.values())
         total_fp = sum(c['fp'] for c in self.category_stats.values())
         total_fn = sum(c['fn'] for c in self.category_stats.values())
