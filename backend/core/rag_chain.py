@@ -1,13 +1,23 @@
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 import logging
+import os
 
 def create_rag_chain(vector_store):
     """Construct the LangChain RAG pipeline with privacy-first design."""
     retriever = vector_store.as_retriever(search_kwargs={"k": 4})
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        raise ValueError("GROQ_API_KEY not found in environment variables.")
+
+    llm = ChatGroq(
+        api_key=groq_api_key,
+        model="llama-3.1-8b-instant",
+        temperature=0,
+    )
 
     prompt_template = """
     You are DocSentry — an AI compliance and data-security analyst built on a Retrieval-Augmented Generation (RAG) framework.

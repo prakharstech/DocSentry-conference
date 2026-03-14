@@ -16,3 +16,8 @@ accelerate
 bitsandbytes
 langchain-mistralai
 langchain-text-splitters
+faker
+pandas
+groq
+scipy
+scikit-learn
