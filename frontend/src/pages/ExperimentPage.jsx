@@ -12,6 +12,7 @@ const ExperimentPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [expandedIndex, setExpandedIndex] = useState(0);
+  const [showLatex, setShowLatex] = useState(false);
 
   const runExperiment = async () => {
     setIsLoading(true);
@@ -175,45 +176,34 @@ const ExperimentPage = () => {
                                 </div>
                             </div>
 
-                            {/* LaTeX Card */}
-                            <div className="bg-slate-900 p-8 rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
-                                <div className="absolute top-0 right-0 p-4">
-                                    <button className="text-slate-500 hover:text-white p-2 transition-colors">
-                                        <Copy className="w-5 h-5" />
-                                    </button>
-                                </div>
-                                <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">LaTeX Publication Table</h3>
-                                <pre className="text-[11px] text-slate-300 font-mono leading-relaxed overflow-x-auto whitespace-pre">
-                                    {results.aggregate_metrics.latex_table}
-                                </pre>
+                            {/* LaTeX Card — collapsible */}
+                            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+                                <button
+                                    onClick={() => setShowLatex(v => !v)}
+                                    className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-slate-800 transition-colors"
+                                >
+                                    <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">LaTeX Publication Table</span>
+                                    <span className="text-slate-500 text-xs">{showLatex ? '▲ collapse' : '▼ expand'}</span>
+                                </button>
+                                {showLatex && (
+                                    <div className="px-6 pb-6">
+                                        <pre className="text-[11px] text-slate-300 font-mono leading-relaxed overflow-x-auto whitespace-pre">
+                                            {results.aggregate_metrics.latex_table}
+                                        </pre>
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
                 </div>
             </div>
         ) : (
-            <div className="h-[600px] border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center text-center p-12">
-                <div className="w-24 h-24 bg-white rounded-3xl shadow-xl flex items-center justify-center mb-8 rotate-3 border border-slate-100">
-                    <FlaskConical className="w-12 h-12 text-blue-600" />
-                </div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-4">Pipeline Benchmarking</h2>
-                <p className="text-slate-500 max-w-md mx-auto leading-relaxed">
-                    This module generates synthetic patient records, assembles a ground truth dataset, and runs the full multi-agent anonymization and attack pipeline to compute rigorous research metrics.
+            <div className="py-16 border-2 border-dashed border-slate-200 rounded-3xl flex flex-col items-center justify-center text-center px-8">
+                <FlaskConical className="w-10 h-10 text-blue-500 mb-3 opacity-60" />
+                <h2 className="text-lg font-bold text-slate-700 mb-1">Pipeline Benchmarking</h2>
+                <p className="text-sm text-slate-400 max-w-sm">
+                    Choose sample size and privacy level above, then click <strong>Run Experiment</strong> to benchmark the full multi-agent pipeline.
                 </p>
-                
-                <div className="mt-12 flex gap-8">
-                    {[
-                        { label: 'Synthetic Generation', icon: ChevronRight },
-                        { label: 'Multi-Agent Flow', icon: ChevronRight },
-                        { label: 'Adversarial Attacks', icon: ChevronRight },
-                        { label: 'Scientific Output', icon: ChevronRight },
-                    ].map((step, i) => (
-                        <div key={i} className="flex items-center gap-2 group">
-                            <span className="text-[10px] font-black text-slate-300 group-hover:text-blue-500 transition-colors uppercase tracking-widest">{step.label}</span>
-                            {i < 3 && <step.icon className="w-3 h-3 text-slate-200" />}
-                        </div>
-                    ))}
-                </div>
             </div>
         )}
       </div>

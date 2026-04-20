@@ -110,6 +110,13 @@ def anonymize_text(text: str, pii_entities: List[Dict], privacy_level: str = PRI
     """
     Replace detected PII in text according to the selected privacy level.
 
+    Fixes vs. original:
+    - Uses re.sub(..., flags=re.IGNORECASE) so case mismatches are caught
+    - Sorts entities by text length descending — replaces longer strings first
+      (prevents "Sarah" from matching inside "Sarah Elizabeth Thornton" prematurely)
+    - All occurrences of each entity are replaced in one pass (not just first)
+    - Strips whitespace from detected segments before matching
+
     Args:
         text:           Original text containing PII.
         pii_entities:   List of PII entities from detect_pii().
@@ -127,60 +134,66 @@ def anonymize_text(text: str, pii_entities: List[Dict], privacy_level: str = PRI
         privacy_level = PRIVACY_LEVEL_GENERALIZE
 
     fake = _get_faker() if privacy_level == PRIVACY_LEVEL_SYNTHETIC else None
-
-    # Synthetic strategy uses a consistency map so the same original value
-    # always gets the same synthetic replacement within a session.
     consistency_map: Dict[str, str] = {}
 
-    anonymized = text
-    replacements = []
+    # Sort longest-first so "Sarah Elizabeth Thornton" is replaced before "Sarah"
+    # This prevents partial matches from leaving residual PII
+    sorted_entities = sorted(
+        [e for e in pii_entities if e.get("text_segment", "").strip()],
+        key=lambda e: len(e.get("text_segment", "")),
+        reverse=True
+    )
 
-    for entity in pii_entities:
-        segment = entity.get("text_segment", "")
+    anonymized = text
+    total_replacements = 0
+
+    for entity in sorted_entities:
+        segment = entity.get("text_segment", "").strip()
         pii_type = entity.get("pii_type", "PII")
 
         if not segment:
             continue
 
-        # Determine replacement tag based on privacy level
+        # Determine replacement placeholder
         if privacy_level == PRIVACY_LEVEL_REDACT:
             placeholder = "[REDACTED]"
 
         elif privacy_level == PRIVACY_LEVEL_SYNTHETIC:
-            # Reuse existing synthetic value if same text was already mapped
             if segment in consistency_map:
                 placeholder = consistency_map[segment]
             else:
                 placeholder = _synthetic_replacement(pii_type, fake)
                 consistency_map[segment] = placeholder
+            # Also map the stripped version for case-insensitive consistency
+            if segment.lower() not in [k.lower() for k in consistency_map]:
+                consistency_map[segment] = placeholder
 
-        else:  # GENERALIZE (default)
+        else:  # GENERALIZE
             placeholder = f"[{pii_type.upper()}]"
 
-        # Find all occurrences of this segment in the current anonymized text
-        start = 0
-        while True:
-            idx = anonymized.find(segment, start)
-            if idx == -1:
-                break
-            replacements.append((idx, idx + len(segment), placeholder))
-            start = idx + len(segment)
+        # Case-insensitive replacement — catches all occurrences including
+        # different capitalizations (e.g. "THORNTON" / "Thornton" / "thornton")
+        try:
+            pattern = re.escape(segment)
+            new_text, count = re.subn(pattern, placeholder, anonymized, flags=re.IGNORECASE)
+            if count > 0:
+                anonymized = new_text
+                total_replacements += count
+            else:
+                # Fallback: try with stripped punctuation from segment edges
+                # (LLM sometimes includes trailing period or comma)
+                segment_stripped = re.sub(r'^[^\w]+|[^\w]+$', '', segment)
+                if segment_stripped and segment_stripped != segment:
+                    pattern2 = re.escape(segment_stripped)
+                    new_text2, count2 = re.subn(pattern2, placeholder, anonymized, flags=re.IGNORECASE)
+                    if count2 > 0:
+                        anonymized = new_text2
+                        total_replacements += count2
+        except re.error as e:
+            logger.warning(f"Regex error for segment '{segment}': {e} — skipping")
+            continue
 
-    # Sort by start position descending to avoid index shifting
-    replacements.sort(key=lambda x: x[0], reverse=True)
-
-    # Remove overlapping replacements (keep the first encountered)
-    filtered = []
-    last_start = len(anonymized)
-    for start, end, placeholder in replacements:
-        if end <= last_start:
-            filtered.append((start, end, placeholder))
-            last_start = start
-
-    for start, end, placeholder in filtered:
-        anonymized = anonymized[:start] + placeholder + anonymized[end:]
-
-    logger.info(f"anonymize_text: {len(filtered)} replacements applied (level={privacy_level})")
+    logger.info(f"anonymize_text: {total_replacements} replacements applied (level={privacy_level})")
     return anonymized
 
 
