@@ -6,16 +6,18 @@ import { useDocSentry } from '../context/DocSentryContext';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const EvaluationPage = () => {
-    const { currentDocText, currentDocFindings, evalResults, setEvalResults } = useDocSentry();
+    const { 
+        currentDocText, currentDocFindings, 
+        evalResults, setEvalResults,
+        piiText, setPiiText,
+        groundTruthJson, setGroundTruthJson,
+        anonResults, setAnonResults,
+        ragResults, setRagResults,
+        overallResults, setOverallResults
+    } = useDocSentry();
+
     const [activeTab, setActiveTab] = useState('pii');
     const [isLoading, setIsLoading] = useState(false);
-
-    // Form states
-    const [piiText, setPiiText] = useState(currentDocText || 'Jim Halpert lives in Scranton, Pennsylvania. He was born on 2024-05-12 and has Asthma. His email is m.scott@example-paper.com and SSN is 123-45-6789.');
-    const [groundTruthJson, setGroundTruthJson] = useState('[\n  {"text": "Jim Halpert", "type": "PERSON"},\n  {"text": "Scranton, Pennsylvania", "type": "LOCATION"},\n  {"text": "2024-05-12", "type": "DATE"},\n  {"text": "Asthma", "type": "CONDITION"},\n  {"text": "m.scott@example-paper.com", "type": "CONTACT"},\n  {"text": "123-45-6789", "type": "SSN"}\n]');
-    const [anonResults, setAnonResults] = useState(null);
-    const [ragResults, setRagResults] = useState(null);
-    const [overallResults, setOverallResults] = useState(null);
 
     const loadCurrentDoc = () => {
         if (currentDocText) {
@@ -58,15 +60,16 @@ const EvaluationPage = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     original_text: piiText,
-                    anonymized_text: piiText, // In a real flow, this would be the actual anonymized text
-                    detected_pii: JSON.parse(groundTruthJson) // Using ground truth as detected for simulation
+                    anonymized_text: evalResults?.anonymized_text || piiText,
+                    // Do NOT send detected_pii here — backend auto-scans from original_text
                 })
             });
             const data = await response.json();
+            if (data.detail) throw new Error(data.detail);
             setAnonResults(data);
         } catch (e) {
             console.error(e);
-            alert('Anonymization Evaluation failed. Check console and JSON format.');
+            alert('Anonymization Evaluation failed: ' + e.message);
         }
         setIsLoading(false);
     };
@@ -217,7 +220,7 @@ const EvaluationPage = () => {
                         <>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 <MetricsCard title="Redaction Coverage" value={anonResults.redaction_coverage || 0.0} target={1.0} />
-                                <MetricsCard title="Adversarial Success (Risk)" value={anonResults.adversarial_success_rate || 0.0} target={0.05} />
+                                <MetricsCard title="Adversarial Success (Risk)" value={anonResults.adversarial_success_rate || 0.0} target={0.05} inverse={true} />
                                 <MetricsCard title="Utility Score" value={(anonResults.utility_score || 0) / 100} target={0.8} />
                             </div>
                             
@@ -335,13 +338,15 @@ const EvaluationPage = () => {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <MetricsCard title="1. PII F1-Score" value={overallResults.pii_detection_f1} target={0.95} />
                             <MetricsCard title="2. Redaction Coverage" value={overallResults.redaction_coverage} target={1.0} />
-                            <MetricsCard title="3. Inference Risk" value={overallResults.inference_risk} target={0.05} />
-                            <MetricsCard title="4. Retrieval Accuracy" value={overallResults.retrieval_accuracy} target={0.8} />
+                            <MetricsCard title="3. Inference Risk" value={overallResults.inference_risk} target={0.05} inverse={true} />
+                            <MetricsCard title="4. Retrieval Accuracy" value={overallResults.retrieval_accuracy ?? null} target={0.8} />
                             <MetricsCard title="5. LLM Response Quality" value={overallResults.llm_response_quality} target={0.8} />
-                            <MetricsCard title="6. End-to-End F1" value={overallResults.end_to_end_f1} target={0.9} />
+                            <MetricsCard title="6. E2E Leakage Rate" value={overallResults.end_to_end_leakage_rate} target={0.05} inverse={true} />
                             <MetricsCard title="7. Query Accuracy" value={overallResults.query_accuracy} target={0.8} />
-                            <MetricsCard title="8. False Positive Rate" value={overallResults.false_positive_rate} target={0.1} />
-                            <MetricsCard title="9. False Negative Rate" value={overallResults.false_negative_rate} target={0.05} />
+                            <MetricsCard title="8. Over-Detection Rate" value={overallResults.over_detection_rate} target={0.1} inverse={true} />
+                            <MetricsCard title="9. False Negative Rate" value={overallResults.false_negative_rate} target={0.05} inverse={true} />
+                            <MetricsCard title="Privacy Score" value={overallResults.privacy_score} target={0.85} />
+                            <MetricsCard title="Utility Score" value={overallResults.composite_utility_score} target={0.7} />
                         </div>
                     )}
                 </div>

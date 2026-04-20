@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { FlaskConical, Play, Loader2, CheckCircle2, ChevronRight, FileText, Shield, AlertCircle, Copy, Download } from 'lucide-react';
+import { useDocSentry } from '../context/DocSentryContext';
+import PrivacyLevelSelector from '../components/PrivacyLevelSelector';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const ExperimentPage = () => {
+  const { currentDocText } = useDocSentry();
   const [numSamples, setNumSamples] = useState(5);
+  const [privacyLevel, setPrivacyLevel] = useState('GENERALIZE');
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [expandedIndex, setExpandedIndex] = useState(0);
@@ -16,7 +20,11 @@ const ExperimentPage = () => {
       const response = await fetch(`${API_URL}/experiment/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ num_samples: numSamples })
+        body: JSON.stringify({ 
+          num_samples: numSamples,
+          document_text: currentDocText || null,
+          privacy_level: privacyLevel
+        })
       });
       const data = await response.json();
       setResults(data);
@@ -33,7 +41,9 @@ const ExperimentPage = () => {
         <header className="mb-8 flex justify-between items-end">
             <div>
                 <h1 className="text-3xl font-bold text-slate-900">Research Lab</h1>
-                <p className="text-slate-500 mt-2">End-to-end multi-agent pipeline testing on synthetic medical data.</p>
+                <p className="text-slate-500 mt-2">
+                  {currentDocText ? "End-to-end multi-agent pipeline testing on uploaded document." : "End-to-end multi-agent pipeline testing on synthetic medical data."}
+                </p>
             </div>
             <div className="flex items-center gap-4 bg-white p-2 rounded-2xl border shadow-sm">
                 <div className="px-4">
@@ -55,6 +65,15 @@ const ExperimentPage = () => {
                 </button>
             </div>
         </header>
+
+        {/* Privacy Level Controls */}
+        <div className="mb-6 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+          <PrivacyLevelSelector
+            selected={privacyLevel}
+            onChange={setPrivacyLevel}
+            disabled={isLoading}
+          />
+        </div>
 
         {results ? (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

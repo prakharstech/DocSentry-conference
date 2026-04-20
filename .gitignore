@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment variables — NEVER commit API keys
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Test artifacts
+test_medical_record.pdf
+backend/test_fixes.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
