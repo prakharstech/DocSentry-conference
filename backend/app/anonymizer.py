@@ -1,19 +1,7 @@
-"""
-PII detection and anonymization module.
-
-Supports three privacy levels:
-  - SYNTHETIC  : Replace PII with realistic fake data (names, SSNs, dates) via Faker.
-                 Highest utility, moderate privacy.
-  - GENERALIZE : Replace PII with category tags like [PERSON], [DATE], [SSN].
-                 Balanced utility and privacy. (Default)
-  - REDACT     : Replace all PII with [REDACTED]. Maximum privacy, minimum utility.
-"""
+"""PII detection and anonymization module using ScannerAgent."""
 
 import re
 import logging
-import random
-from typing import Tuple, List, Dict
-
 from agents.scanner import ScannerAgent
 from agents.strategy import StrategyAgent
 from agents.masker import MaskingAgent
@@ -24,20 +12,6 @@ logger = logging.getLogger(__name__)
 _scanner = None
 _strategy = None
 _masker = None
-
-# Medical conditions for synthetic generation
-_MEDICAL_CONDITIONS = [
-    "Hypertension", "Type 2 Diabetes", "Pneumonia", "Chronic Kidney Disease",
-    "Congestive Heart Failure", "Severe Migraine", "Acute Appendicitis",
-    "Atrial Fibrillation", "Major Depressive Disorder", "Rheumatoid Arthritis",
-    "Asthma", "Epilepsy", "Osteoporosis", "COPD", "Glaucoma"
-]
-
-# Privacy level constants
-PRIVACY_LEVEL_SYNTHETIC = "SYNTHETIC"
-PRIVACY_LEVEL_GENERALIZE = "GENERALIZE"
-PRIVACY_LEVEL_REDACT = "REDACT"
-VALID_PRIVACY_LEVELS = {PRIVACY_LEVEL_SYNTHETIC, PRIVACY_LEVEL_GENERALIZE, PRIVACY_LEVEL_REDACT}
 
 
 def _get_scanner() -> ScannerAgent:
@@ -61,9 +35,10 @@ def _get_masker() -> MaskingAgent:
     return _masker
 
 
-def detect_pii(text: str) -> List[Dict]:
+def detect_pii(text: str) -> list[dict]:
     """
     Detect PII entities in text using the ScannerAgent (LLM-based NER).
+
     Returns:
         List of PII entity dicts with text_segment, pii_type, risk_level, reasoning.
     """
@@ -72,104 +47,43 @@ def detect_pii(text: str) -> List[Dict]:
     return result.get("findings", [])
 
 
-# ---------------------------------------------------------------------------
-# Synthetic replacement helpers
-# ---------------------------------------------------------------------------
-
-def _get_faker():
-    """Lazy import Faker to avoid hard dependency at module load."""
-    try:
-        from faker import Faker
-        return Faker()
-    except ImportError:
-        return None
-
-
-def _synthetic_replacement(pii_type: str, fake) -> str:
-    """Generate a realistic replacement for a given PII type."""
-    if fake is None:
-        # Fallback if Faker not installed
-        return f"[{pii_type}]"
-    type_map = {
-        "PERSON":    lambda: fake.name(),
-        "SSN":       lambda: fake.ssn(),
-        "DATE":      lambda: fake.date(),
-        "LOCATION":  lambda: fake.city(),
-        "CONTACT":   lambda: fake.phone_number() if random.random() > 0.5 else fake.email(),
-        "CONDITION": lambda: random.choice(_MEDICAL_CONDITIONS),
-    }
-    generator = type_map.get(pii_type.upper())
-    return generator() if generator else f"[{pii_type}]"
-
-
-# ---------------------------------------------------------------------------
-# Core anonymization functions
-# ---------------------------------------------------------------------------
-
-def anonymize_text(text: str, pii_entities: List[Dict], privacy_level: str = PRIVACY_LEVEL_GENERALIZE) -> str:
+def anonymize_text(text: str, pii_entities: list[dict]) -> str:
     """
-    Replace detected PII in text according to the selected privacy level.
+    Replace detected PII with [PII_TYPE] placeholders.
+    Processes entities from last to first to avoid offset issues.
 
     Args:
-        text:           Original text containing PII.
-        pii_entities:   List of PII entities from detect_pii().
-        privacy_level:  One of SYNTHETIC, GENERALIZE, REDACT.
+        text: Original text
+        pii_entities: List of PII entities from detect_pii()
 
     Returns:
-        Anonymized text string.
+        Anonymized text with PII replaced by placeholders.
     """
     if not pii_entities:
         return text
 
-    privacy_level = privacy_level.upper() if privacy_level else PRIVACY_LEVEL_GENERALIZE
-    if privacy_level not in VALID_PRIVACY_LEVELS:
-        logger.warning(f"Unknown privacy level '{privacy_level}', defaulting to GENERALIZE.")
-        privacy_level = PRIVACY_LEVEL_GENERALIZE
-
-    fake = _get_faker() if privacy_level == PRIVACY_LEVEL_SYNTHETIC else None
-
-    # Synthetic strategy uses a consistency map so the same original value
-    # always gets the same synthetic replacement within a session.
-    consistency_map: Dict[str, str] = {}
-
     anonymized = text
-    replacements = []
 
+    # Sort entities by their position in text (last first) to avoid index shifting
+    # We find each entity's position and replace from end to start
+    replacements = []
     for entity in pii_entities:
         segment = entity.get("text_segment", "")
         pii_type = entity.get("pii_type", "PII")
+        if segment:
+            # Find all occurrences
+            start = 0
+            while True:
+                idx = anonymized.find(segment, start)
+                if idx == -1:
+                    break
+                replacements.append((idx, idx + len(segment), f"[{pii_type}]"))
+                start = idx + len(segment)
 
-        if not segment:
-            continue
-
-        # Determine replacement tag based on privacy level
-        if privacy_level == PRIVACY_LEVEL_REDACT:
-            placeholder = "[REDACTED]"
-
-        elif privacy_level == PRIVACY_LEVEL_SYNTHETIC:
-            # Reuse existing synthetic value if same text was already mapped
-            if segment in consistency_map:
-                placeholder = consistency_map[segment]
-            else:
-                placeholder = _synthetic_replacement(pii_type, fake)
-                consistency_map[segment] = placeholder
-
-        else:  # GENERALIZE (default)
-            placeholder = f"[{pii_type.upper()}]"
-
-        # Find all occurrences of this segment in the current anonymized text
-        start = 0
-        while True:
-            idx = anonymized.find(segment, start)
-            if idx == -1:
-                break
-            replacements.append((idx, idx + len(segment), placeholder))
-            start = idx + len(segment)
-
-    # Sort by start position descending to avoid index shifting
+    # Sort by start position descending (replace from end first)
     replacements.sort(key=lambda x: x[0], reverse=True)
 
-    # Remove overlapping replacements (keep the first encountered)
+    # Remove overlapping replacements (keep the first one found)
     filtered = []
     last_start = len(anonymized)
     for start, end, placeholder in replacements:
@@ -180,23 +94,26 @@ def anonymize_text(text: str, pii_entities: List[Dict], privacy_level: str = PRI
     for start, end, placeholder in filtered:
         anonymized = anonymized[:start] + placeholder + anonymized[end:]
 
-    logger.info(f"anonymize_text: {len(filtered)} replacements applied (level={privacy_level})")
+    logger.info(f"Anonymized {len(filtered)} PII entities in text")
     return anonymized
 
 
-def detect_and_anonymize(text: str, privacy_level: str = PRIVACY_LEVEL_GENERALIZE) -> Tuple[str, List[Dict]]:
+def detect_and_anonymize(text: str) -> tuple[str, list[dict]]:
     """
-    Combined pipeline: scan → anonymize.
-    Supports all three privacy levels.
+    Combined pipeline: scan -> strategy -> mask.
+    Preserves consistency via singleton MaskingAgent.
 
     Returns:
         Tuple of (anonymized_text, detected_pii_entities)
     """
+    # 1. Scan
     findings = detect_pii(text)
     if not findings:
         return text, []
 
-    anonymized = anonymize_text(text, findings, privacy_level=privacy_level)
+    # Use the deterministic string replacement function to guarantee explicit [TYPE] tags
+    anonymized = anonymize_text(text, findings)
+    
     return anonymized, findings
 
 

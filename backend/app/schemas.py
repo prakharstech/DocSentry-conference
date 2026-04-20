@@ -1,22 +1,10 @@
 """Pydantic models for all API request/response schemas."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 
 
-# ---------------------------------------------------------------------------
-# Privacy Level Enum (as string constant)
-# ---------------------------------------------------------------------------
-# SYNTHETIC  — realistic fake replacements (highest utility)
-# GENERALIZE — [PERSON], [DATE], [SSN] tags (balanced)
-# REDACT     — [REDACTED] for all PII (maximum privacy)
-
-PRIVACY_LEVELS = ["SYNTHETIC", "GENERALIZE", "REDACT"]
-
-
-# ---------------------------------------------------------------------------
-# PII Entity Models
-# ---------------------------------------------------------------------------
+# --- PII Entity Models ---
 
 class PIIEntity(BaseModel):
     text_segment: str = Field(..., description="The exact text containing PII")
@@ -30,9 +18,7 @@ class GroundTruthPII(BaseModel):
     type: str  # PERSON, LOCATION, DATE, CONDITION, CONTACT, SSN
 
 
-# ---------------------------------------------------------------------------
-# Upload / Query Models
-# ---------------------------------------------------------------------------
+# --- Upload/Query Models ---
 
 class QueryRequest(BaseModel):
     query: str
@@ -41,30 +27,26 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
-    source_chunks: List[dict] = []
+    source_chunks: list[dict] = []
     anonymized: bool = True
-    pattern_based: List[dict] = []
+    pattern_based: list[dict] = []
 
 
 class UploadResponse(BaseModel):
     status: str
     message: str
     pii_count: int = 0
-    pii_types: List[str] = []
+    pii_types: list[str] = []
     anonymized: bool = True
-    privacy_level: str = "GENERALIZE"
     raw_text: Optional[str] = None
-    anonymized_text: Optional[str] = None
-    findings: List[dict] = []
+    findings: list[dict] = []
 
 
-# ---------------------------------------------------------------------------
-# Evaluation Models
-# ---------------------------------------------------------------------------
+# --- Evaluation Models ---
 
 class PIIDetectionRequest(BaseModel):
     original_text: str
-    ground_truth_pii: List[GroundTruthPII]
+    ground_truth_pii: list[GroundTruthPII]
 
 
 class PIIDetectionResponse(BaseModel):
@@ -72,11 +54,10 @@ class PIIDetectionResponse(BaseModel):
     recall: float
     f1_score: float
     false_negative_rate: float
-    # Bug 3 fix: renamed from false_positive_rate (was computing 1 - Precision)
-    over_detection_rate: float = 0.0
+    false_positive_rate: float
     anonymized_text: str = ""
-    per_category: dict = {}   # {category: {precision, recall, f1}}
-    confusion_matrix: List = []
+    per_category: dict = {}  # {category: {precision, recall, f1}}
+    confusion_matrix: list = []
     total_ground_truth: int = 0
     total_detected: int = 0
 
@@ -84,27 +65,25 @@ class PIIDetectionResponse(BaseModel):
 class AnonymizationEvalRequest(BaseModel):
     original_text: str
     anonymized_text: str
-    detected_pii: List[PIIEntity] = []
-    privacy_level: str = Field(default="GENERALIZE", description="SYNTHETIC | GENERALIZE | REDACT")
+    detected_pii: list[PIIEntity] = []
 
 
 class AnonymizationEvalResponse(BaseModel):
     redaction_coverage: float
     pii_leakage_detected: bool
-    leaked_entities: List[str] = []
+    leaked_entities: list[str] = []
     k_anonymity: Optional[int] = None
     adversarial_success_rate: Optional[float] = None
     utility_score: Optional[int] = None
     fidelity_rating: Optional[str] = None
-    privacy_level: str = "GENERALIZE"
 
 
 class RAGEvalRequest(BaseModel):
     query: str
     response: str
     expected_answer: str = ""
-    context_chunks: List[str] = []
-    ground_truth_chunk_indices: List[int] = []
+    context_chunks: list[str] = []
+    ground_truth_chunk_indices: list[int] = []
 
 
 class RAGEvalResponse(BaseModel):
@@ -112,7 +91,6 @@ class RAGEvalResponse(BaseModel):
     groundedness_score: float
     relevancy_reasoning: str = ""
     groundedness_reasoning: str = ""
-    # Bug 5 fix: these can be None when ground truth IDs not provided
     context_precision: Optional[float] = None
     context_recall: Optional[float] = None
 
@@ -121,28 +99,18 @@ class OverallSystemEvalResponse(BaseModel):
     pii_detection_f1: float
     redaction_coverage: float
     inference_risk: float
-    retrieval_accuracy: Optional[float] = None   # None = not measured
+    retrieval_accuracy: float
     llm_response_quality: float
-    end_to_end_leakage_rate: float               # renamed from end_to_end_f1
+    end_to_end_f1: float
     query_accuracy: float
-    over_detection_rate: float = 0.0             # Bug 3 fix: renamed from false_positive_rate
+    false_positive_rate: float
     false_negative_rate: float
-    privacy_score: float = 0.0
-    composite_utility_score: float = 0.0
-    privacy_level: str = "GENERALIZE"
 
 
-# ---------------------------------------------------------------------------
-# Experiment Models
-# ---------------------------------------------------------------------------
+# --- Experiment Models ---
 
 class ExperimentRequest(BaseModel):
     num_samples: int = Field(default=5, ge=1, le=50, description="Number of synthetic records")
-    document_text: Optional[str] = None
-    privacy_level: str = Field(
-        default="GENERALIZE",
-        description="SYNTHETIC (fake data) | GENERALIZE ([TYPE] tags) | REDACT ([REDACTED])"
-    )
 
 
 class ExperimentResult(BaseModel):
@@ -153,49 +121,15 @@ class ExperimentResult(BaseModel):
     detected_count: int
     precision: float
     recall: float
-    privacy_level: str = "GENERALIZE"
-
-    # Group A - Privacy
     f1_score: float
-    false_negative_rate: float = 0.0
-    over_detection_rate: float = 0.0          # Bug 3 fix: renamed
-    redaction_coverage: float = 0.0
+    strategy_used: list[dict] = []
     adversarial_success: bool = False
-
-    # Group B - Utility
-    retrieval_accuracy: Optional[float] = None   # Bug 5 fix: None when unmeasured
-    context_precision: Optional[float] = None
-    context_recall: Optional[float] = None
-    relevancy_score: float = 0.0
-    groundedness_score: float = 0.0
-    query_accuracy: float = 0.0
-    end_to_end_leakage: bool = False
-
-    # Extras and composites
-    strategy_used: List[dict] = []
     utility_score: int = 0
     consistency_score: float = 0.0
-    privacy_score: float = 0.0
-    composite_utility_score: float = 0.0
 
 
 class ExperimentResponse(BaseModel):
     status: str
     num_samples: int
-    privacy_level: str = "GENERALIZE"
-    results: List[ExperimentResult] = []
-
-    # Aggregate Metrics (9 parameters + composites)
-    false_negative_rate: float = 0.0
-    over_detection_rate: float = 0.0           # Bug 3 fix: renamed
-    redaction_coverage: float = 0.0
-    retrieval_accuracy: Optional[float] = None # Bug 5 fix: None when unmeasured
-    context_precision: Optional[float] = None
-    context_recall: Optional[float] = None
-    relevancy_score: float = 0.0
-    groundedness_score: float = 0.0
-    end_to_end_leakage: float = 0.0
-    privacy_score: float = 0.0
-    composite_utility_score: float = 0.0
-
+    results: list[ExperimentResult] = []
     aggregate_metrics: dict = {}
